@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import numpy as np
 import joblib
+import time
 
 # Konfigurasi halaman untuk lebar penuh
 st.set_page_config(page_title="Dashboard Penerbangan Qatar", layout="wide")
@@ -229,27 +230,96 @@ if page == "Analisis Data":
 if page == "Prediksi Sentimen dan Topik":
     st.markdown("<h1 class='title-center'>Prediksi Sentimen dan Topik</h1>", unsafe_allow_html=True)
     
-    # Input untuk ulasan pengguna
-    review_text = st.text_area("Masukkan ulasan penerbangan untuk diprediksi:")
+    # Pilih metode input: manual atau file
+    input_method = st.radio("Pilih metode input:", ("Manual", "File"))
 
-    if st.button("Prediksi"):
-        if review_text:
-            # Lakukan prediksi dengan model yang menghasilkan dua output: sentimen dan topik
-            sentiment_prediction, topic_prediction = model.predict([review_text])[0]
+    if input_method == "Manual":
+        # Input manual untuk ulasan pengguna
+        review_text = st.text_area("Masukkan ulasan penerbangan untuk diprediksi:")
 
-            # Tambahkan hasil prediksi ke session state
-            st.session_state["predictions"].append({
-                "Review": review_text,
-                "Topic": topic_prediction,
-                "Sentiment": sentiment_prediction
-            })
+        if st.button("Prediksi"):
+            if review_text:
+                # Mengukur waktu prediksi
+                start_time = time.time()
+                sentiment_prediction, topic_prediction = model.predict([review_text])[0]
+                end_time = time.time()
+                prediction_time = end_time - start_time
 
-        else:
-            st.warning("Silakan masukkan teks ulasan terlebih dahulu.")
+                # Tambahkan hasil prediksi ke session state
+                st.session_state["predictions"].append({
+                    "Review": review_text,
+                    "Topic": sentiment_prediction,
+                    "Sentiment": topic_prediction,
+                    "Prediction Time (s)": round(prediction_time, 4)
+                })
 
-    # Buat DataFrame dari semua hasil prediksi yang tersimpan
-    if st.session_state["predictions"]:
-        prediction_df = pd.DataFrame(st.session_state["predictions"])
+            else:
+                st.warning("Silakan masukkan teks ulasan terlebih dahulu.")
 
-        # Tampilkan hasil dalam bentuk tabel
-        st.table(prediction_df)
+        # Tampilkan DataFrame hasil prediksi jika ada
+        if st.session_state["predictions"]:
+            prediction_df = pd.DataFrame(st.session_state["predictions"])
+            st.table(prediction_df)
+
+    elif input_method == "File":
+        # Input file dan pilih kolom review
+        uploaded_file = st.file_uploader("Unggah file CSV berisi ulasan:", type=["csv"])
+        
+        if uploaded_file is not None:
+            data = pd.read_csv(uploaded_file)
+            review_column = st.selectbox("Pilih kolom yang berisi ulasan:", options=data.columns)
+
+            if st.button("Prediksi dari File"):
+                # Hapus nilai NaN dari kolom yang dipilih
+                review_data = data[review_column].dropna()
+
+                # Proses prediksi untuk setiap review di kolom yang dipilih
+                predictions = []
+                start_time = time.time()
+                
+                for review in review_data:
+                    sentiment_prediction, topic_prediction = model.predict([review])[0]
+                    predictions.append({
+                        "Review": review,
+                        "Sentiment": topic_prediction,
+                        "Topic": sentiment_prediction
+                    })
+                
+                end_time = time.time()
+                prediction_time = end_time - start_time
+
+                # Menyimpan hasil prediksi ke DataFrame dan ke session_state
+                prediction_df = pd.DataFrame(predictions)
+                st.session_state["predictions"] = prediction_df.to_dict('records')  # Menyimpan di session state
+
+                # Tampilkan hasil prediksi
+                st.table(prediction_df.head())
+
+                                    # Filter data berdasarkan sentimen negatif dan positif
+                negative_topics = prediction_df[prediction_df['Sentiment'] == 'negative']['Topic'].value_counts()
+                positive_topics = prediction_df[prediction_df['Sentiment'] == 'positive']['Topic'].value_counts()
+
+                # Membagi layout menjadi dua kolom untuk visualisasi
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    # Pie chart untuk topik dengan sentimen negatif
+                    if not negative_topics.empty:
+                        fig, ax = plt.subplots()
+                        ax.pie(negative_topics, labels=negative_topics.index, autopct='%1.1f%%', startangle=140)
+                        ax.set_title("Topik Review Negatif")
+                        plt.tight_layout()  # Menambah padding agar pie chart terlihat jelas
+                        st.pyplot(fig)
+                    else:
+                        st.write("Tidak ada topik dengan sentimen negatif.")
+
+                with col2:
+                    # Pie chart untuk topik dengan sentimen positif
+                    if not positive_topics.empty:
+                        fig, ax = plt.subplots()
+                        ax.pie(positive_topics, labels=positive_topics.index, autopct='%1.1f%%', startangle=140)
+                        ax.set_title("Topik Review Positif")
+                        plt.tight_layout()  # Menambah padding agar pie chart terlihat jelas
+                        st.pyplot(fig)
+                    else:
+                        st.write("Tidak ada topik dengan sentimen positif.")
